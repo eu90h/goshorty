@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto/rand"
 	"database/sql"
 	"log"
-	"math/rand"
+	"math"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
@@ -75,7 +77,13 @@ func setupRouter() *gin.Engine {
 	r.POST("/", func(c *gin.Context) {
 		true_url := c.Request.FormValue("url")
 		if isUrlOk(true_url) {
-			short_url, err := s.Encode([]uint64{counter, rand.Uint64()})
+			x, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+			if err != nil {
+				log.Println(err)
+				c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
+			}
+			
+			short_url, err := s.Encode([]uint64{counter, x.Uint64()})
 			if err != nil {
 				log.Println(err)
 				c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
@@ -153,5 +161,8 @@ func main() {
 	}
 
 	r := setupRouter()
-	r.Run("127.0.0.1:8080") // TODO: change to RunTLS for HTTPS support.
+	err = r.Run("127.0.0.1:8080") // TODO: change to RunTLS for HTTPS support.
+	if err != nil {
+		log.Fatal(err)
+	}
 }
