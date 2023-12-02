@@ -76,60 +76,42 @@ func setupRouter() *gin.Engine {
 
 	r.POST("/", func(c *gin.Context) {
 		true_url := c.Request.FormValue("url")
-		if isUrlOk(true_url) {
-			x, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
-			if err != nil {
-				log.Println(err)
-				c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
-			}
-			
-			short_url, err := s.Encode([]uint64{counter, x.Uint64()})
-			if err != nil {
-				log.Println(err)
-				c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
-				return
-			}
-
-			_, err = db.Query(`INSERT INTO urlmap (short_url,true_url) VALUES ($1,$2)`, short_url, true_url)
-			if err != nil {
-				log.Println(err)
-				c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
-				return
-			}
-
-			counter += 1
-			c.JSON(http.StatusOK, gin.H{"short_url": short_url, "true_url": true_url})
-			return
-		} else {
+		if !isUrlOk(true_url) {
 			c.JSON(http.StatusOK, gin.H{"error": "invalid url"})
 			return
 		}
+		x, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+		if err != nil {
+			log.Println(err)
+			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
+		}
+		short_url, err := s.Encode([]uint64{counter, x.Uint64()})
+		if err != nil {
+			log.Println(err)
+			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
+			return
+		}
+
+		_, err = db.Query(`INSERT INTO urlmap (short_url,true_url) VALUES ($1,$2)`, short_url, true_url)
+		if err != nil {
+			log.Println(err)
+			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
+			return
+		}
+
+		counter += 1
+		c.JSON(http.StatusOK, gin.H{"short_url": short_url, "true_url": true_url})
 	})
 
 	r.GET("/:id", func(c *gin.Context) {
+		var true_url string
 		shortened_url_id := c.Params.ByName("id")
-		rows, err := db.Query(`SELECT (true_url) from urlmap where short_url = $1`, shortened_url_id)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"error": "shortened url not found"})
-		}
-
-		defer rows.Close()
-		for rows.Next() {
-			var true_url string
-			if err := rows.Scan(&true_url); err != nil {
-				log.Println(err)
-				c.JSON(http.StatusOK, gin.H{"error": "shortened url not found"})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{"url": true_url})
-			return
-		}
-
-		if err := rows.Err(); err != nil {
-			log.Println(err)
+		if err := db.QueryRow(`SELECT (true_url) from urlmap where short_url = $1`, shortened_url_id).Scan(&true_url); err != nil {
 			c.JSON(http.StatusOK, gin.H{"error": "shortened url not found"})
 			return
 		}
+
+		c.JSON(http.StatusOK, gin.H{"url": true_url})
 	})
 
 	return r
