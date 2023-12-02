@@ -14,7 +14,9 @@ import (
 	jsonpath "github.com/steinfletcher/apitest-jsonpath"
 )
 
-func TestShortening(t *testing.T) {
+const SERVER_ADDR = "http://127.0.0.1:8080/"
+
+func StartServer(cb func(*http.Client)) {
 	server_chan := make(chan bool, 1)
 	server_process_chan := make(chan *exec.Cmd, 1)
 
@@ -46,21 +48,21 @@ func TestShortening(t *testing.T) {
 	}()
 
 	if <-server_chan {
-		true_url := "https://www.reddit.com"
-		handler := func(w http.ResponseWriter, r *http.Request) {
-			
-		}
-
 		cookieJar, _ := cookiejar.New(nil)
 		cli := &http.Client{
 			Timeout: time.Second * 1,
 			Jar:     cookieJar,
 		}
-		
+		cb(cli)
+	}
+}
+
+func TestShortening(t *testing.T) {
+	StartServer(func(cli *http.Client) {
+		true_url := "https://www.reddit.com"
 		resp := apitest.New().
-				HandlerFunc(handler).
 				EnableNetworking(cli).
-				Post("http://127.0.0.1:8080/").
+				Post(SERVER_ADDR).
 				FormData("url", true_url).
 				Expect(t).
 				Assert(jsonpath.Chain().Equal("true_url", true_url).Present("short_url").End()).
@@ -79,12 +81,25 @@ func TestShortening(t *testing.T) {
 		}
 
 		apitest.New().
-				HandlerFunc(handler).
 				EnableNetworking(cli).
-				Get("http://127.0.0.1:8080/" + data.Short_url).
+				Get(SERVER_ADDR + data.Short_url).
 				Expect(t).
 				Assert(jsonpath.Chain().Equal("url", data.True_url).End()).
 				Status(http.StatusOK).
 				End()
-	}
+	})
+}
+
+func TestShorteningBadURL(t *testing.T) {
+	StartServer(func(cli *http.Client) {
+		true_url := "htttp://ww.google.c"
+		apitest.New().
+				EnableNetworking(cli).
+				Post(SERVER_ADDR).
+				FormData("url", true_url).
+				Expect(t).
+				Assert(jsonpath.Chain().Present("error").End()).
+				Status(http.StatusOK).
+				End()
+	})
 }
