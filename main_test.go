@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"log"
 	"net/http"
 	"net/http/cookiejar"
+	"os"
 	"os/exec"
 	"syscall"
 	"testing"
@@ -12,9 +14,28 @@ import (
 
 	"github.com/steinfletcher/apitest"
 	jsonpath "github.com/steinfletcher/apitest-jsonpath"
+	"gopkg.in/yaml.v3"
 )
 
 const SERVER_ADDR = "http://127.0.0.1:8080/"
+var rate_limit int
+
+func TestMain(m *testing.M) {
+	content, err := os.ReadFile("api_config.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	api_config := APIConfig{}
+	err = yaml.Unmarshal([]byte(content), &api_config)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	rate_limit = int(api_config.RequestsPerMinute)
+	code := m.Run()
+    os.Exit(code)
+}
 
 func StartServer(cb func(*http.Client)) {
 	server_chan := make(chan bool, 1)
@@ -100,6 +121,33 @@ func TestShorteningBadURL(t *testing.T) {
 				Expect(t).
 				Assert(jsonpath.Chain().Present("error").End()).
 				Status(http.StatusOK).
+				End()
+	})
+}
+
+func TestShorteningRateLimiter(t *testing.T) {
+	log.Printf("rate limit is %d\n", rate_limit)
+	StartServer(func(cli *http.Client) {
+		true_url := "https://www.reddit.com"
+		for i := 0; i < 5+rate_limit; i++ {
+			req, err := http.NewRequest("POST", SERVER_ADDR, bytes.NewBuffer([]byte("url="+true_url)))
+			if err != nil {
+				log.Println(err)
+			}
+
+			c := http.Client{Timeout: time.Duration(1) * time.Second}
+			_, err = c.Do(req)
+			if err != nil {
+				log.Println(err)
+			}
+		}
+		apitest.New().
+				EnableNetworking(cli).
+				Post(SERVER_ADDR).
+				FormData("url", true_url).
+				Expect(t).
+				Assert(jsonpath.Chain().Present("error").End()).
+				Status(http.StatusTooManyRequests).
 				End()
 	})
 }
