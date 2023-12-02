@@ -11,6 +11,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/didip/tollbooth"
+	"github.com/didip/tollbooth/limiter"
+	"github.com/didip/tollbooth_gin"
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 	"github.com/sqids/sqids-go"
@@ -18,7 +21,8 @@ import (
 )
 
 type APIConfig struct {
-	Conninfo string
+	Conninfo string `yaml:"conninfo"`;
+	RequestsPerMinute float64 `yaml:"requestsPerMinute"`;
 }
 
 var db *sql.DB
@@ -54,8 +58,11 @@ func isUrlOk(u string) bool {
 	return true
 }
 
-func setupRouter() *gin.Engine {
+func setupRouter(api_config *APIConfig) *gin.Engine {
 	var counter uint64 = 0;
+	if api_config == nil {
+		log.Fatal("api_config is nil")
+	}
 
 	if db == nil {
 		log.Fatal("no db connection")
@@ -70,11 +77,16 @@ func setupRouter() *gin.Engine {
 
 	r := gin.Default()
 	
+	limiter := tollbooth.NewLimiter(api_config.RequestsPerMinute, &limiter.ExpirableOptions{DefaultExpirationTTL: time.Minute})
+	limiter.SetMethods([]string{"POST"})
+	limiter.SetMessage(`{"error": "too many requests"}`)
+	limiter.SetMessageContentType("application/json; charset=utf-8")
+
 	r.GET("/ping", func(c *gin.Context) {
 		c.String(http.StatusOK, "pong")
 	})
 
-	r.POST("/", func(c *gin.Context) {
+	r.POST("/", tollbooth_gin.LimitHandler(limiter), func(c *gin.Context) {
 		true_url := c.Request.FormValue("url")
 		if !isUrlOk(true_url) {
 			c.JSON(http.StatusOK, gin.H{"error": "invalid url"})
@@ -124,7 +136,6 @@ func main() {
 	}
 
 	api_config := APIConfig{}
-    
 	err = yaml.Unmarshal([]byte(content), &api_config)
 	if err != nil {
 		log.Fatal(err)
@@ -140,7 +151,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	r := setupRouter()
+	r := setupRouter(&api_config)
 	err = r.Run("127.0.0.1:8080") // TODO: change to RunTLS for HTTPS support.
 	if err != nil {
 		log.Fatal(err)
