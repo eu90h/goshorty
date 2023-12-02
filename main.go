@@ -118,8 +118,6 @@ func setupRouter() *gin.Engine {
 }
 
 func main() {
-	var err error
-	
 	content, err := os.ReadFile("api_config.yaml")
 	if err != nil {
 		log.Fatal(err)
