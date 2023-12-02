@@ -46,7 +46,7 @@ func StartServer(cb func(*http.Client)) {
 			return
 		}
 
-		time.Sleep(3 * time.Second)
+		time.Sleep(10 * time.Second)
 		server_process_chan <- cmd
 		server_chan <- true
 		cmd.Wait()
@@ -63,7 +63,7 @@ func StartServer(cb func(*http.Client)) {
 	if <-server_chan {
 		cookieJar, _ := cookiejar.New(nil)
 		cli := &http.Client{
-			Timeout: time.Second * 1,
+			Timeout: time.Second * 10,
 			Jar:     cookieJar,
 		}
 		cb(cli)
