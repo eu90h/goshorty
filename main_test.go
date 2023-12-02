@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"os/exec"
+	"syscall"
 	"testing"
 	"time"
 
@@ -14,19 +15,36 @@ import (
 )
 
 func TestShortening(t *testing.T) {
-	server_chan := make(chan bool)
+	server_chan := make(chan bool, 1)
+	server_process_chan := make(chan *exec.Cmd, 1)
 
 	go func() {
 		cmd := exec.Command("go", "run", "main.go")
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			Pdeathsig: syscall.SIGKILL,
+			Setpgid: true,
+		}
+
 		err := cmd.Start()
 		if err != nil {
 			server_chan <- false
 			return
 		}
-		time.Sleep(5)
+
+		time.Sleep(3 * time.Second)
+		server_process_chan <- cmd
 		server_chan <- true
+		cmd.Wait()
 	}()
-	
+
+	defer func() {
+		cmd := <- server_process_chan
+		if cmd != nil && cmd.Process != nil {
+			syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			cmd.Process.Kill()
+		}
+	}()
+
 	if <-server_chan {
 		true_url := "https://www.reddit.com"
 		handler := func(w http.ResponseWriter, r *http.Request) {
