@@ -14,25 +14,17 @@ import (
 
 	"github.com/steinfletcher/apitest"
 	jsonpath "github.com/steinfletcher/apitest-jsonpath"
-	"gopkg.in/yaml.v3"
 )
 
-const SERVER_ADDR = "http://127.0.0.1:8080/"
-var rate_limit int
+var server_addr = "http://127.0.0.1:8080/"
+var rate_limit int = 60
 
 func TestMain(m *testing.M) {
-	content, err := os.ReadFile("api_config.yaml")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	api_config := APIConfig{}
-	err = yaml.Unmarshal([]byte(content), &api_config)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	api_config := CreateAppConfig()
 	rate_limit = int(api_config.RequestsPerMinute)
+	if len(os.Getenv("GOSHORTY_TEST_SERVER_ADDR")) > 0 {
+		server_addr = os.Getenv("GOSHORTY_TEST_SERVER_ADDR")
+	}
 	code := m.Run()
     os.Exit(code)
 }
@@ -83,7 +75,7 @@ func TestShortening(t *testing.T) {
 		true_url := "https://www.reddit.com"
 		resp := apitest.New().
 				EnableNetworking(cli).
-				Post(SERVER_ADDR).
+				Post(server_addr).
 				FormData("url", true_url).
 				Expect(t).
 				Assert(jsonpath.Chain().Equal("true_url", true_url).Present("short_url").End()).
@@ -103,7 +95,7 @@ func TestShortening(t *testing.T) {
 
 		apitest.New().
 				EnableNetworking(cli).
-				Get(SERVER_ADDR + data.Short_url).
+				Get(server_addr + data.Short_url).
 				Expect(t).
 				Assert(jsonpath.Chain().Equal("url", data.True_url).End()).
 				Status(http.StatusOK).
@@ -116,7 +108,7 @@ func TestShorteningBadURL(t *testing.T) {
 		true_url := "htttp://ww.google.c"
 		apitest.New().
 				EnableNetworking(cli).
-				Post(SERVER_ADDR).
+				Post(server_addr).
 				FormData("url", true_url).
 				Expect(t).
 				Assert(jsonpath.Chain().Present("error").End()).
@@ -129,7 +121,7 @@ func TestShorteningRateLimiter(t *testing.T) {
 	StartServer(func(cli *http.Client) {
 		true_url := "https://www.reddit.com"
 		for i := 0; i < 5+rate_limit; i++ {
-			req, err := http.NewRequest("POST", SERVER_ADDR, bytes.NewBuffer([]byte("url="+true_url)))
+			req, err := http.NewRequest("POST", server_addr, bytes.NewBuffer([]byte("url="+true_url)))
 			if err != nil {
 				log.Println(err)
 			}
@@ -142,7 +134,7 @@ func TestShorteningRateLimiter(t *testing.T) {
 		}
 		apitest.New().
 				EnableNetworking(cli).
-				Post(SERVER_ADDR).
+				Post(server_addr).
 				FormData("url", true_url).
 				Expect(t).
 				Assert(jsonpath.Chain().Present("error").End()).
