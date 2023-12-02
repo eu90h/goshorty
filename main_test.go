@@ -126,7 +126,6 @@ func TestShorteningBadURL(t *testing.T) {
 }
 
 func TestShorteningRateLimiter(t *testing.T) {
-	log.Printf("rate limit is %d\n", rate_limit)
 	StartServer(func(cli *http.Client) {
 		true_url := "https://www.reddit.com"
 		for i := 0; i < 5+rate_limit; i++ {
