@@ -1,4 +1,4 @@
-module github.com/eu90h/url-shortener-api
+module github.com/eu90h/goshorty
 
 go 1.21.3
 

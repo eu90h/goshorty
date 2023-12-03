@@ -1,4 +1,4 @@
-package main
+package goshorty
 
 import (
 	"crypto/rand"
@@ -21,13 +21,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const API_CONFIG_FILE_PATH = "config/api_config.yaml"
+
+type ShortyApp struct {
+	Config APIConfig;
+	DB *sql.DB
+}
+
 type APIConfig struct {
 	Conninfo string `yaml:"conninfo"`;
 	RequestsPerMinute float64 `yaml:"requestsPerMinute"`;
 	ListenAddr string `yaml:"listenAddr"`;
 }
-
-var db *sql.DB
 
 func isUrlOk(u string) bool {
 	http_client := http.Client{
@@ -60,11 +65,8 @@ func isUrlOk(u string) bool {
 	return true
 }
 
-func setupRouter(api_config *APIConfig) *gin.Engine {
+func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 	var counter uint64 = 0;
-	if api_config == nil {
-		log.Fatal("api_config is nil")
-	}
 
 	s, err := sqids.New(sqids.Options{
 		MinLength: 15,
@@ -74,8 +76,8 @@ func setupRouter(api_config *APIConfig) *gin.Engine {
 	}
 
 	r := gin.Default()
-	
-	limiter := tollbooth.NewLimiter(api_config.RequestsPerMinute, &limiter.ExpirableOptions{DefaultExpirationTTL: time.Minute})
+
+	limiter := tollbooth.NewLimiter(shorty.Config.RequestsPerMinute, &limiter.ExpirableOptions{DefaultExpirationTTL: time.Minute})
 	limiter.SetMethods([]string{"POST"})
 	limiter.SetMessage(`{"error": "too many requests"}`)
 	limiter.SetMessageContentType("application/json; charset=utf-8")
@@ -85,12 +87,13 @@ func setupRouter(api_config *APIConfig) *gin.Engine {
 	})
 
 	r.POST("/", tollbooth_gin.LimitHandler(limiter), func(c *gin.Context) {
-		if db == nil {
-			db, err = sql.Open("postgres", api_config.Conninfo)
+		if shorty.DB == nil {
+			db, err := sql.Open("postgres", shorty.Config.Conninfo)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 				return
 			}
+			shorty.DB = db
 		}
 		true_url := c.Request.FormValue("url")
 		if !isUrlOk(true_url) {
@@ -108,7 +111,7 @@ func setupRouter(api_config *APIConfig) *gin.Engine {
 			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
 			return
 		}
-		_, err = db.Query(`INSERT INTO urlmap (short_url,true_url,creation_time,clicks) VALUES ($1,$2,$3,0)`, short_url, true_url, time.Now())
+		_, err = shorty.DB.Query(`INSERT INTO urlmap (short_url,true_url,creation_time,clicks) VALUES ($1,$2,$3,0)`, short_url, true_url, time.Now())
 		if err != nil {
 			log.Println(err)
 			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
@@ -120,20 +123,21 @@ func setupRouter(api_config *APIConfig) *gin.Engine {
 	})
 
 	r.GET("/:id", func(c *gin.Context) {
-		if db == nil {
-			db, err = sql.Open("postgres", api_config.Conninfo)
+		if shorty.DB == nil {
+			db, err := sql.Open("postgres", shorty.Config.Conninfo)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 				return
 			}
+			shorty.DB = db
 		}
 		var true_url string
 		shortened_url_id := c.Params.ByName("id")
-		if err := db.QueryRow(`SELECT (true_url) from urlmap where short_url = $1`, shortened_url_id).Scan(&true_url); err != nil {
+		if err := shorty.DB.QueryRow(`SELECT (true_url) from urlmap where short_url = $1`, shortened_url_id).Scan(&true_url); err != nil {
 			c.JSON(http.StatusOK, gin.H{"error": "shortened url not found"})
 			return
 		}
-		db.QueryRow(`UPDATE urlmap SET clicks = clicks + 1 WHERE short_url = $1`, shortened_url_id)
+		shorty.DB.QueryRow(`UPDATE urlmap SET clicks = clicks + 1 WHERE short_url = $1`, shortened_url_id)
 		c.JSON(http.StatusOK, gin.H{"url": true_url})
 	})
 
@@ -161,9 +165,9 @@ func CreateAppConfig() APIConfig {
 		}
 	}
 
-	_, err := os.Stat("api_config.yaml")
+	_, err := os.Stat(API_CONFIG_FILE_PATH)
 	if err == nil {
-		content, err := os.ReadFile("api_config.yaml")
+		content, err := os.ReadFile(API_CONFIG_FILE_PATH)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -177,12 +181,13 @@ func CreateAppConfig() APIConfig {
 	return api_config
 }
 
-func main() {
-	api_config := CreateAppConfig()
-	log.Println(api_config)
-	r := setupRouter(&api_config)
-	err := r.Run(api_config.ListenAddr) // TODO: change to RunTLS for HTTPS support.
-	if err != nil {
-		log.Fatal(err)
+func NewShortyApp(config *APIConfig) *ShortyApp {
+	var api_config = config
+	if config == nil {
+		x := CreateAppConfig()
+		api_config = &x
 	}
+	shorty := ShortyApp{}
+	shorty.Config = *api_config
+	return &shorty
 }
