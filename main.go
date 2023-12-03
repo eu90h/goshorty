@@ -108,7 +108,7 @@ func setupRouter(api_config *APIConfig) *gin.Engine {
 			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
 			return
 		}
-		_, err = db.Query(`INSERT INTO urlmap (short_url,true_url) VALUES ($1,$2)`, short_url, true_url)
+		_, err = db.Query(`INSERT INTO urlmap (short_url,true_url,creation_time,clicks) VALUES ($1,$2,$3,0)`, short_url, true_url, time.Now())
 		if err != nil {
 			log.Println(err)
 			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
@@ -133,7 +133,7 @@ func setupRouter(api_config *APIConfig) *gin.Engine {
 			c.JSON(http.StatusOK, gin.H{"error": "shortened url not found"})
 			return
 		}
-
+		db.QueryRow(`UPDATE urlmap SET clicks = clicks + 1 WHERE short_url = $1`, shortened_url_id)
 		c.JSON(http.StatusOK, gin.H{"url": true_url})
 	})
 
