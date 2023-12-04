@@ -3,14 +3,16 @@ This is an example Go program presenting an incredibly simple API for shortening
 E.g. to shorten a link,
 
 ```
-curl -X POST 127.0.0.1:8080/ -d url=https://www.reddit.com
-
-{"short_url":"OaJcohOGElMrdDL","true_url":"https://www.reddit.com"}
-```
-lookup shortened url
+curl -X POST https://goshorty.fly.dev/shorten -d url="https://www.google.com/"
+{"short_url":"EBhU0623h5UWOUx","true_url":"https://www.google.com/"}
 
 ```
-curl -X GET 127.0.0.1:8080/OaJcohOGElMrdDL
 
-{"url":"https://www.reddit.com"}
+When you visit the shortened link, a redirection occurs:
+
 ```
+curl -X GET https://goshorty.fly.dev/EBhU0623h5UWOUx
+<a href="https://www.google.com/">Moved Permanently</a>.
+```
+
+An example of the app is running at https://goshorty.fly.dev/
