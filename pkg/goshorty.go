@@ -122,6 +122,10 @@ func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"short_url": short_url, "true_url": true_url})
 	})
 
+	r.GET("/", func (c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "https://github.com/eu90h/goshorty")
+	})
+
 	r.GET("/:id", func(c *gin.Context) {
 		if shorty.DB == nil {
 			db, err := sql.Open("postgres", shorty.Config.Conninfo)
