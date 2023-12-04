@@ -36,6 +36,10 @@ type APIConfig struct {
 }
 
 func isUrlOk(u string) bool {
+	if len(u) == 0 {
+		return false
+	}
+
 	http_client := http.Client{
 		Timeout: 3 * time.Second,
 	}
