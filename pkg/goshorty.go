@@ -86,6 +86,10 @@ func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 		c.String(http.StatusOK, "pong")
 	})
 
+	r.GET("/shorten", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "https://github.com/eu90h/goshorty")
+	})
+
 	r.POST("/shorten", tollbooth_gin.LimitHandler(limiter), func(c *gin.Context) {
 		if shorty.DB == nil {
 			db, err := sql.Open("postgres", shorty.Config.Conninfo)
