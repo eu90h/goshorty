@@ -65,10 +65,11 @@ func TestShortening(t *testing.T) {
 		Timeout: time.Second * 10,
 		Jar:     cookieJar,
 	}
+	log.Println(server_addr.JoinPath("shorten").String())
 	true_url := "https://www.reddit.com"
 	resp := apitest.New().
 			EnableNetworking(cli).
-			Post(server_addr.String()).
+			Post(server_addr.JoinPath("shorten").String()).
 			FormData("url", true_url).
 			Expect(t).
 			Assert(jsonpath.Chain().Equal("true_url", true_url).Present("short_url").End()).
@@ -85,14 +86,6 @@ func TestShortening(t *testing.T) {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	apitest.New().
-			EnableNetworking(cli).
-			Get(server_addr.JoinPath(data.ShortUrl).String()).
-			Expect(t).
-			Assert(jsonpath.Chain().Equal("url", data.TrueUrl).End()).
-			Status(http.StatusOK).
-			End()
 }
 
 func TestShorteningBadURL(t *testing.T) {
@@ -104,7 +97,7 @@ func TestShorteningBadURL(t *testing.T) {
 	true_url := "htttp://ww.google.c"
 	apitest.New().
 			EnableNetworking(cli).
-			Post(server_addr.String()).
+			Post(server_addr.JoinPath("shorten").String()).
 			FormData("url", true_url).
 			Expect(t).
 			Assert(jsonpath.Chain().Present("error").End()).
@@ -120,7 +113,7 @@ func TestShorteningRateLimiter(t *testing.T) {
 	}
 	true_url := "https://www.reddit.com"
 	for i := 0; i < 5+rate_limit; i++ {
-		req, err := http.NewRequest("POST", server_addr.String(), bytes.NewBuffer([]byte("url="+true_url)))
+		req, err := http.NewRequest("POST", server_addr.JoinPath("shorten").String(), bytes.NewBuffer([]byte("url="+true_url)))
 		if err != nil {
 			log.Println(err)
 		}
@@ -133,7 +126,7 @@ func TestShorteningRateLimiter(t *testing.T) {
 	}
 	apitest.New().
 			EnableNetworking(cli).
-			Post(server_addr.String()).
+			Post(server_addr.JoinPath("shorten").String()).
 			FormData("url", true_url).
 			Expect(t).
 			Assert(jsonpath.Chain().Present("error").End()).

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/asaskevich/govalidator"
 	"github.com/didip/tollbooth"
 	"github.com/didip/tollbooth/limiter"
 	"github.com/didip/tollbooth_gin"
@@ -51,18 +52,13 @@ func isUrlOk(u string) bool {
 		return false
 	}
 
-	resp, err := http_client.Do(req)
+	_, err = http_client.Do(req)
 	if err != nil {
 		log.Println(err)
 		return false
 	}
 
-	if resp.StatusCode != 200 {
-		log.Println(err)
-		return false
-	}
-
-	return true
+	return govalidator.IsURL(u)
 }
 
 func (shorty *ShortyApp) SetupRouter() *gin.Engine {
@@ -86,7 +82,7 @@ func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 		c.String(http.StatusOK, "pong")
 	})
 
-	r.POST("/", tollbooth_gin.LimitHandler(limiter), func(c *gin.Context) {
+	r.POST("/shorten", tollbooth_gin.LimitHandler(limiter), func(c *gin.Context) {
 		if shorty.DB == nil {
 			db, err := sql.Open("postgres", shorty.Config.Conninfo)
 			if err != nil {
@@ -138,7 +134,7 @@ func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 			return
 		}
 		shorty.DB.QueryRow(`UPDATE urlmap SET clicks = clicks + 1 WHERE short_url = $1`, shortened_url_id)
-		c.JSON(http.StatusOK, gin.H{"url": true_url})
+		c.Redirect(http.StatusMovedPermanently, true_url)
 	})
 
 	return r
@@ -146,6 +142,10 @@ func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 
 func CreateAppConfig() APIConfig {
 	api_config := APIConfig{}
+	if len(os.Getenv("DATABASE_URL")) > 0 {
+		api_config.Conninfo = os.Getenv("DATABASE_URL")
+	}
+
 	if len(os.Getenv("GOSHORTY_CONNINFO")) > 0 {
 		api_config.Conninfo = os.Getenv("GOSHORTY_CONNINFO")
 	}

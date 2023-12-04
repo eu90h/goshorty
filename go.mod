@@ -3,6 +3,7 @@ module github.com/eu90h/goshorty
 go 1.21.3
 
 require (
+	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2
 	github.com/didip/tollbooth v4.0.2+incompatible
 	github.com/didip/tollbooth_gin v0.0.0-20170928041415-5752492be505
 	github.com/gin-gonic/gin v1.9.1
