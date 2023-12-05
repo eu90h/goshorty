@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/asaskevich/govalidator"
@@ -26,7 +27,9 @@ const API_CONFIG_FILE_PATH = "config/api_config.yaml"
 
 type ShortyApp struct {
 	Config APIConfig;
-	DB *sql.DB
+	DB *sql.DB;
+	counter uint64;
+	mu sync.Mutex;
 }
 
 type APIConfig struct {
@@ -66,8 +69,6 @@ func isUrlOk(u string) bool {
 }
 
 func (shorty *ShortyApp) SetupRouter() *gin.Engine {
-	var counter uint64 = 0;
-
 	s, err := sqids.New(sqids.Options{
 		MinLength: 15,
 	})
@@ -111,7 +112,7 @@ func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 			log.Println(err)
 			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
 		}
-		short_url, err := s.Encode([]uint64{counter, x.Uint64()})
+		short_url, err := s.Encode([]uint64{shorty.counter, x.Uint64()})
 		if err != nil {
 			log.Println(err)
 			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
@@ -123,8 +124,9 @@ func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
 			return
 		}
-
-		counter += 1
+		shorty.mu.Lock()
+		shorty.counter += 1
+		shorty.mu.Unlock()
 		c.JSON(http.StatusOK, gin.H{"short_url": short_url, "true_url": true_url})
 	})
 
