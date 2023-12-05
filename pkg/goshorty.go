@@ -78,7 +78,10 @@ func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 
 	r := gin.Default()
 	//https://github.com/gin-gonic/gin/issues/2809
-	r.SetTrustedProxies(nil)
+	err = r.SetTrustedProxies(nil)
+	if err != nil {
+		log.Fatal("failed to set trusted proxies")
+	}
 
 	limiter := tollbooth.NewLimiter(shorty.Config.RequestsPerMinute, &limiter.ExpirableOptions{DefaultExpirationTTL: time.Minute})
 	limiter.SetMethods([]string{"POST"})
