@@ -1,3 +1,4 @@
+// goshorty is a package providing a simple gin-based API for shortening URLs
 package goshorty
 
 import (

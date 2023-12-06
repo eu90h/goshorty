@@ -1,3 +1,4 @@
+// Run a goshorty API shortening server
 package main
 
 import (
