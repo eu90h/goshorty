@@ -23,21 +23,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Default APIConfig file path.
 const API_CONFIG_FILE_PATH = "config/api_config.yaml"
 
+// ShortyApp represents the application itself.
+// To create an instance, first create an APIConfig, then use NewShortyApp().
 type ShortyApp struct {
 	Config APIConfig;
+	// DB to store URL -> short ID maps in.
 	DB *sql.DB;
+	// counter is one of the inputs for short ID generation.
 	counter uint64;
 	mu sync.Mutex;
 }
 
+// APIConfig represents the API's actual configuration.
+// To actually create one, use CreateAppConfig()
 type APIConfig struct {
+	// A Postgres connection string.
 	Conninfo string `yaml:"conninfo"`;
+	// Number of API requests per minute
 	RequestsPerMinute float64 `yaml:"requestsPerMinute"`;
+	// Address to listen for HTTP requests on, defaults to 0.0.0.0:8080
 	ListenAddr string `yaml:"listenAddr"`;
 }
 
+// isUrlOk validates a given URL in a few ways.
+// It can fail if the URL isn't reachable with a HEAD request.
 func isUrlOk(u string) bool {
 	if len(u) == 0 {
 		return false
@@ -68,6 +80,8 @@ func isUrlOk(u string) bool {
 	return govalidator.IsURL(u)
 }
 
+// SetupRouter initializes a gin.Engine and sets the appropriate handlers.
+// The handlers here are the meat of the application, responsible for shortening URLs and redirection.
 func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 	s, err := sqids.New(sqids.Options{
 		MinLength: 15,
@@ -159,6 +173,8 @@ func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 	return r
 }
 
+// CreateAppConfig creates a new APIConfig by filling in the fields from a number of sources.
+// Environment variables are checked first, then `config/api_config.yaml` is checked.
 func CreateAppConfig() APIConfig {
 	api_config := APIConfig{}
 	if len(os.Getenv("DATABASE_URL")) > 0 {
