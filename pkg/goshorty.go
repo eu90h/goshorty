@@ -30,12 +30,14 @@ const API_CONFIG_FILE_PATH = "config/api_config.yaml"
 // ShortyApp represents the application itself.
 // To create an instance, first create an APIConfig, then use NewShortyApp().
 type ShortyApp struct {
-	Config APIConfig;
+	Config APIConfig
 	// DB to store URL -> short ID maps in.
-	DB *sql.DB;
+	DB *sql.DB
 	// counter is one of the inputs for short ID generation.
-	counter uint64;
-	mu sync.Mutex;
+	counter uint64
+	// used to actually generate short IDs
+	sqid *sqids.Sqids
+	mu sync.Mutex
 }
 
 // APIConfig represents the API's actual configuration.
@@ -81,19 +83,87 @@ func isUrlOk(u string) bool {
 	return govalidator.IsURL(u)
 }
 
+func (shorty *ShortyApp) HandleShorten(c *gin.Context) {
+	if shorty.DB == nil {
+		db, err := sql.Open("postgres", shorty.Config.Conninfo)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			log.Fatal(err)
+		}
+		shorty.DB = db
+	}
+
+	if shorty.sqid == nil {
+		s, err := sqids.New(sqids.Options{
+			MinLength: 15,
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			log.Fatal(err)
+		}
+		shorty.sqid = s
+	}
+
+	true_url := c.Request.FormValue("url")
+	if !isUrlOk(true_url) {
+		c.JSON(http.StatusOK, gin.H{"error": "invalid url"})
+		return
+	}
+
+	x, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
+	if err != nil {
+		log.Println(err)
+		c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
+	}
+
+	short_url, err := shorty.sqid.Encode([]uint64{shorty.counter, x.Uint64()})
+	if err != nil {
+		log.Println(err)
+		c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
+		return
+	}
+
+	_, err = shorty.DB.Query(`INSERT INTO urlmap (short_url,true_url,creation_time,clicks) VALUES ($1,$2,$3,0)`, short_url, true_url, time.Now())
+	if err != nil {
+		log.Println(err)
+		c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
+		return
+	}
+
+	shorty.mu.Lock()
+	shorty.counter += 1
+	shorty.mu.Unlock()
+
+	c.JSON(http.StatusOK, gin.H{"short_url": short_url, "true_url": true_url})
+}
+
+func (shorty *ShortyApp) HandleLookup(c *gin.Context) {
+	if shorty.DB == nil {
+		db, err := sql.Open("postgres", shorty.Config.Conninfo)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+			return
+		}
+		shorty.DB = db
+	}
+
+	var true_url string
+	shortened_url_id := c.Params.ByName("id")
+	if err := shorty.DB.QueryRow(`SELECT (true_url) from urlmap where short_url = $1`, shortened_url_id).Scan(&true_url); err != nil {
+		c.JSON(http.StatusOK, gin.H{"error": "shortened url not found"})
+		return
+	}
+
+	shorty.DB.QueryRow(`UPDATE urlmap SET clicks = clicks + 1 WHERE short_url = $1`, shortened_url_id)
+	c.Redirect(http.StatusMovedPermanently, true_url)
+}
+
 // SetupRouter initializes a gin.Engine and sets the appropriate handlers.
 // The handlers here are the meat of the application, responsible for shortening URLs and redirection.
 func (shorty *ShortyApp) SetupRouter() *gin.Engine {
-	s, err := sqids.New(sqids.Options{
-		MinLength: 15,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	r := gin.Default()
 	//https://github.com/gin-gonic/gin/issues/2809
-	err = r.SetTrustedProxies(nil)
+	err := r.SetTrustedProxies(nil)
 	if err != nil {
 		log.Fatal("failed to set trusted proxies")
 	}
@@ -111,65 +181,13 @@ func (shorty *ShortyApp) SetupRouter() *gin.Engine {
 		c.Redirect(http.StatusMovedPermanently, "https://github.com/eu90h/goshorty")
 	})
 
-	r.POST("/shorten", tollbooth_gin.LimitHandler(limiter), func(c *gin.Context) {
-		if shorty.DB == nil {
-			db, err := sql.Open("postgres", shorty.Config.Conninfo)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
-				return
-			}
-			shorty.DB = db
-		}
-		true_url := c.Request.FormValue("url")
-		if !isUrlOk(true_url) {
-			c.JSON(http.StatusOK, gin.H{"error": "invalid url"})
-			return
-		}
-		x, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt64))
-		if err != nil {
-			log.Println(err)
-			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
-		}
-		short_url, err := s.Encode([]uint64{shorty.counter, x.Uint64()})
-		if err != nil {
-			log.Println(err)
-			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
-			return
-		}
-		_, err = shorty.DB.Query(`INSERT INTO urlmap (short_url,true_url,creation_time,clicks) VALUES ($1,$2,$3,0)`, short_url, true_url, time.Now())
-		if err != nil {
-			log.Println(err)
-			c.JSON(http.StatusOK, gin.H{"error": "failed to shorten url"})
-			return
-		}
-		shorty.mu.Lock()
-		shorty.counter += 1
-		shorty.mu.Unlock()
-		c.JSON(http.StatusOK, gin.H{"short_url": short_url, "true_url": true_url})
-	})
+	r.POST("/shorten", tollbooth_gin.LimitHandler(limiter), shorty.HandleShorten)
 
 	r.GET("/", func (c *gin.Context) {
 		c.Redirect(http.StatusMovedPermanently, "https://github.com/eu90h/goshorty")
 	})
 
-	r.GET("/:id", func(c *gin.Context) {
-		if shorty.DB == nil {
-			db, err := sql.Open("postgres", shorty.Config.Conninfo)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
-				return
-			}
-			shorty.DB = db
-		}
-		var true_url string
-		shortened_url_id := c.Params.ByName("id")
-		if err := shorty.DB.QueryRow(`SELECT (true_url) from urlmap where short_url = $1`, shortened_url_id).Scan(&true_url); err != nil {
-			c.JSON(http.StatusOK, gin.H{"error": "shortened url not found"})
-			return
-		}
-		shorty.DB.QueryRow(`UPDATE urlmap SET clicks = clicks + 1 WHERE short_url = $1`, shortened_url_id)
-		c.Redirect(http.StatusMovedPermanently, true_url)
-	})
+	r.GET("/:id", shorty.HandleLookup)
 
 	return r
 }
@@ -223,7 +241,17 @@ func NewShortyApp(config *APIConfig) *ShortyApp {
 		x := CreateAppConfig()
 		api_config = &x
 	}
+
+	s, err := sqids.New(sqids.Options{
+		MinLength: 15,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	shorty := ShortyApp{}
 	shorty.Config = *api_config
+	shorty.sqid = s
+
 	return &shorty
 }
